@@ -36,6 +36,7 @@ if (cluster.isMaster) {
     // [WORKER PROCESS] - Aici rulează efectiv serverul Express
     // ============================================================================
     const app = express();
+    app.use(express.static(__dirname));
     const PORT = process.env.PORT || 3000;
 
     // 1. Conexiune Bază de Date (Pool cu Auto-Reconnect)
