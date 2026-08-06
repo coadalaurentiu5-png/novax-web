@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 const cluster = require('cluster');
 const os = require('os');
 const express = require('express');
@@ -36,8 +37,10 @@ if (cluster.isMaster) {
     // [WORKER PROCESS] - Aici rulează efectiv serverul Express
     // ============================================================================
     const app = express();
-    app.get('/', (req, res) => {
-    res.sendFile(__dirname + '/index.html'); // Schimbă '/index.html' cu calea exactă dacă e în alt folder (ex: '/public/index.html')
+   app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
     const PORT = process.env.PORT || 3000;
 
