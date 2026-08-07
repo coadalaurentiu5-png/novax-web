@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX - Admin Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .container { max-width: 1000px; width: 100%; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.85rem; }
+        th, td { padding: 12px; border: 1px solid var(--border-color); text-align: left; }
+        th { background: #090a0e; color: var(--text-sub); }
+        tr:nth-child(even) { background: #10121a; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.75rem; }
+        .badge.active { background: #103820; color: #4ade80; }
+        .badge.banned { background: #381010; color: #f87171; }
+        .btn { padding: 8px 12px; font-size: 0.75rem; cursor: pointer; border: none; border-radius: 6px; }
+        .btn-reset { background: #3b82f6; color: white; }
+        .btn-ban { background: #ef4444; color: white; }
+        .btn-unban { background: #22c55e; color: white; }
+        .admin-key-row { display: flex; gap: 10px; margin-bottom: 16px; }
+        .admin-key-row input { flex: 1; }
+        #msg { margin-top: 12px; font-size: 0.8rem; }
+        .ok { color: #4ade80; }
+        .err { color: #f87171; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="brand-header">
+            <div class="logo-text">NOVA<span class="highlight">X</span> ADMIN</div>
+            <p class="tagline">Gestionare Chei & HWID-uri</p>
+        </header>
+
+        <div class="admin-key-row">
+            <input type="password" id="adminKeyInput" placeholder="Cheie de admin (dacă este setată)">
+            <button onclick="loadLicenses()" class="btn" style="background:#6366f1;color:#fff;">🔄 Încarcă Licențe</button>
+        </div>
+
+        <div class="main-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Email</th>
+                        <th>Cheie Licență</th>
+                        <th>Plan</th>
+                        <th>HWID</th>
+                        <th>Status</th>
+                        <th>Acțiuni</th>
+                    </tr>
+                </thead>
+                <tbody id="licensesTable">
+                    <tr><td colspan="6" style="text-align:center;">Apasă „Încarcă Licențe”.</td></tr>
+                </tbody>
+            </table>
+            <div id="msg"></div>
+        </div>
+    </div>
+
+    <script>
+        function adminHeaders() {
+            const headers = { 'Content-Type': 'application/json' };
+            const key = document.getElementById('adminKeyInput').value.trim();
+            if (key) headers['x-admin-key'] = key;
+            return headers;
+        }
+
+        function setMsg(text, ok = true) {
+            const msg = document.getElementById('msg');
+            msg.textContent = text;
+            msg.className = ok ? 'ok' : 'err';
+        }
+
+        async function loadLicenses() {
+            const tbody = document.getElementById('licensesTable');
+            try {
+                const res = await fetch('/api/admin/licenses', { headers: adminHeaders() });
+                const data = await res.json();
+                if (!res.ok) { setMsg(data.error || 'Eroare la încărcare.', false); return; }
+                if (!data.success) { setMsg('Răspuns neașteptat.', false); return; }
+
+                tbody.innerHTML = '';
+                if (data.licenses.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Nicio licență găsită.</td></tr>';
+                } else {
+                    data.licenses.forEach(lic => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${esc(lic.email || '—')}</td>
+                            <td><code>${esc(lic.key)}</code></td>
+                            <td>${esc(lic.plan)}</td>
+                            <td>${lic.hwid ? '🔒 Locked' : '🔓 Unlocked'}</td>
+                            <td><span class="badge ${lic.status === 'banned' ? 'banned' : 'active'}">${esc(lic.status.toUpperCase())}</span></td>
+                            <td>
+                                <button class="btn btn-reset" onclick="resetHWID('${escAttr(lic.key)}')">Reset HWID</button>
+                                ${lic.status === 'active'
+                                    ? `<button class="btn btn-ban" onclick="toggleBan('${escAttr(lic.key)}','banned')">Ban</button>`
+                                    : `<button class="btn btn-unban" onclick="toggleBan('${escAttr(lic.key)}','active')">Unban</button>`}
+                            </td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                }
+                setMsg('');
+            } catch (err) {
+                setMsg('Eroare de conexiune.', false);
+            }
+        }
+
+        async function resetHWID(key) {
+            if (!confirm(`Resetezi HWID pentru ${key}?`)) return;
+            const res = await fetch('/api/admin/reset-hwid', { method: 'POST', headers: adminHeaders(), body: JSON.stringify({ key }) });
+            const data = await res.json();
+            setMsg(res.ok ? 'HWID resetat.' : (data.error || 'Eroare.'), res.ok);
+            loadLicenses();
+        }
+
+        async function toggleBan(key, status) {
+            if (!confirm(`Schimbi statusul pentru ${key} în ${status}?`)) return;
+            const res = await fetch('/api/admin/toggle-ban', { method: 'POST', headers: adminHeaders(), body: JSON.stringify({ key, status }) });
+            const data = await res.json();
+            setMsg(res.ok ? 'Status actualizat.' : (data.error || 'Eroare.'), res.ok);
+            loadLicenses();
+        }
+
+        function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+        function escAttr(s) { return String(s).replace(/['"\\`]/g, ''); }
+
+        // load on start
+        loadLicenses();
+    </script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plată reușită — NovaX</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .card { max-width: 480px; text-align: center; }
+        .check-icon { font-size: 3rem; color: #4ade80; margin-bottom: 12px; }
+        h1 { font-size: 1.6rem; margin-bottom: 8px; }
+        .license-box { background:#000; border:1px solid var(--border-color); border-radius:10px; padding:16px; margin:18px 0; word-break: break-all; }
+        .license-box code { font-size: 0.95rem; }
+        .sub { color: var(--text-sub); font-size: 0.85rem; }
+        .loading { color: var(--text-sub); }
+    </style>
+</head>
+<body>
+    <div class="main-card card">
+        <div class="check-icon">✅</div>
+        <h1>Plata a fost procesată!</h1>
+        <p class="sub">Îți căutăm licența...</p>
+        <div id="licensesBox" class="loading">Se verifică plata...</div>
+        <p class="sub" style="margin-top:14px;">Licența a fost generată automat și trimisă pe email-ul de la checkout.</p>
+        <br>
+        <button onclick="location.href='/'" style="padding:12px 20px;border:none;border-radius:10px;background:var(--primary);color:#fff;font-weight:700;cursor:pointer;">
+            Înapoi la site
+        </button>
+    </div>
+
+    <script>
+        async function loadLicense() {
+            const box = document.getElementById('licensesBox');
+            const params = new URLSearchParams(location.search);
+            const session_id = params.get('session_id');
+            if (!session_id) { box.textContent = 'Lipsește referința plății.'; return; }
+            try {
+                const res = await fetch('/api/license/lookup?session_id=' + encodeURIComponent(session_id));
+                const data = await res.json();
+                if (data.success && data.licenses && data.licenses.length) {
+                    box.className = '';
+                    box.innerHTML = data.licenses.map(l => `
+                        <div class="license-box">
+                            <div style="color:var(--text-sub);font-size:0.75rem;">${l.plan}</div>
+                            <code>${l.key}</code>
+                        </div>
+                    `).join('');
+                } else {
+                    box.textContent = 'Licența se procesează... Verifică email-ul în câteva momente.';
+                }
+            } catch (e) {
+                box.textContent = 'Nu am putut verifica licența acum. Vei primi cheia pe email.';
+            }
+        }
+        loadLicense();
+    </script>
+</body>
+</html>
