@@ -9,6 +9,9 @@ const state = {
     cart: [],
     products: [],
     user: null,
+    payMethod: 'card',           // 'card' | 'paysafe'
+    paysafeTimer: null,          // setInterval pentru cronometru
+    paysafeExpiresAt: null,      // momentul expirării
 };
 
 // Initializez iconițele lucide
@@ -128,6 +131,59 @@ function updateCartUI() {
 }
 
 // ---------------------------------------------------------------------
+// Selector metodă de plată
+// ---------------------------------------------------------------------
+function setPayMethod(method) {
+    state.payMethod = method;
+    const cardBtn = document.getElementById('payMethodCard');
+    const paysafeBtn = document.getElementById('payMethodPaysafe');
+    const paysafeForm = document.getElementById('paysafeForm');
+
+    const activeCls = 'border-brand-400 bg-brand-950/40 text-brand-300 shadow-lg shadow-brand-500/10';
+    const idleCls = 'border-slate-700 text-slate-300';
+
+    if (cardBtn) { cardBtn.className = `pay-method-btn flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${method === 'card' ? activeCls : idleCls}`; }
+    if (paysafeBtn) { paysafeBtn.className = `pay-method-btn flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${method === 'paysafe' ? activeCls : idleCls}`; }
+
+    if (paysafeForm) {
+        paysafeForm.classList.toggle('hidden', method !== 'paysafe');
+        if (method === 'paysafe') startPaysafeCountdown();
+        else stopPaysafeCountdown();
+    }
+    if (window.lucide) lucide.createIcons();
+}
+
+// Cronometru de 10 minute pentru plata Paysafecard
+function startPaysafeCountdown() {
+    stopPaysafeCountdown();
+    state.paysafeExpiresAt = Date.now() + 10 * 60 * 1000; // 10 minute
+    const timerEl = document.getElementById('paysafeTimer');
+    const form = document.getElementById('paysafeForm');
+
+    state.paysafeTimer = setInterval(() => {
+        const remain = state.paysafeExpiresAt - Date.now();
+        if (remain <= 0) {
+            stopPaysafeCountdown();
+            if (timerEl) timerEl.textContent = 'EXPIRAT';
+            showToast('Timpul a expirat. Comanda a fost anulată.', 'error');
+            return;
+        }
+        const mm = String(Math.floor(remain / 60000)).padStart(2, '0');
+        const ss = String(Math.floor((remain % 60000) / 1000)).padStart(2, '0');
+        if (timerEl) timerEl.textContent = `${mm}:${ss}`;
+        // avertizare culoare sub 1 minut
+        if (remain < 60000 && timerEl) timerEl.classList.add('text-rose-400');
+    }, 250);
+}
+
+function stopPaysafeCountdown() {
+    if (state.paysafeTimer) {
+        clearInterval(state.paysafeTimer);
+        state.paysafeTimer = null;
+    }
+}
+
+// ---------------------------------------------------------------------
 // Checkout
 // ---------------------------------------------------------------------
 async function processCheckoutExecution() {
@@ -145,14 +201,18 @@ async function processCheckoutExecution() {
 
     if (errorBox) errorBox.classList.add('hidden');
 
+    // --- Metoda Paysafecard: flux separat ---
+    if (state.payMethod === 'paysafe') {
+        return await processPaysafeCheckout(checkoutBtn, email);
+    }
+
+    // --- Metoda card (Stripe) ---
     try {
         checkoutBtn.disabled = true;
         checkoutBtn.innerHTML = `<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Se procesează...`;
         if (window.lucide) lucide.createIcons();
 
-        const payload = {
-            items: state.cart.map(item => ({ id: item.id, quantity: item.quantity })),
-        };
+        const payload = { items: state.cart.map(item => ({ id: item.id, quantity: item.quantity })) };
         if (email) payload.email = email;
 
         const response = await fetch('/create-checkout-session', {
@@ -173,7 +233,56 @@ async function processCheckoutExecution() {
     } finally {
         if (!document.querySelector('#checkoutBtn')) return;
         checkoutBtn.disabled = false;
-        checkoutBtn.innerHTML = `<i data-lucide="credit-card" class="w-5 h-5 stroke-[2.5]"></i> Efectuează Plata (Stripe)`;
+        checkoutBtn.innerHTML = `<i data-lucide="credit-card" class="w-5 h-5 stroke-[2.5]"></i> Efectuează Plata`;
+        if (window.lucide) lucide.createIcons();
+    }
+}
+
+// Checkout cu Paysafecard — creează comanda cu chitanță + redirecționează
+async function processPaysafeCheckout(checkoutBtn, email) {
+    const pinInput = document.getElementById('paysafePin');
+    const pin = (pinInput && pinInput.value) || '';
+    const cleanPin = pin.replace(/\s+/g, '');
+
+    // Validare strictă a PIN-ului
+    if (!/^\d{16}$/.test(cleanPin)) {
+        showToast('PIN Paysafecard invalid. Trebuie să conțină exact 16 cifre.', 'error');
+        return;
+    }
+
+    try {
+        checkoutBtn.disabled = true;
+        checkoutBtn.innerHTML = `<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Se verifică...`;
+        if (window.lucide) lucide.createIcons();
+
+        const payload = {
+            email,
+            pin: cleanPin,
+            items: state.cart.map(item => ({ id: item.id, quantity: item.quantity })),
+        };
+
+        const response = await fetch('/api/paysafe/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (response.ok && data.success) {
+            // Comandă creată — redirecționăm la chitanță
+            showToast('Chitanța a fost generată. Urmărește pașii!', 'success');
+            stopPaysafeCountdown();
+            window.location.href = data.receiptUrl;
+        } else {
+            throw new Error(data.error || 'Nu am putut crea comanda Paysafecard.');
+        }
+    } catch (err) {
+        showCheckoutError(err.message || 'Serverul nu a răspuns.');
+    } finally {
+        if (!document.querySelector('#checkoutBtn')) return;
+        checkoutBtn.disabled = false;
+        checkoutBtn.innerHTML = `<i data-lucide="credit-card" class="w-5 h-5 stroke-[2.5]"></i> Efectuează Plata`;
         if (window.lucide) lucide.createIcons();
     }
 }
@@ -185,6 +294,28 @@ function showCheckoutError(msg) {
         errorBox.classList.remove('hidden');
     }
 }
+
+// ---------------------------------------------------------------------
+// Toast-uri (alerta prietenoasă)
+// ---------------------------------------------------------------------
+function showToast(msg, type = 'info') {
+    const colors = { info: 'border-brand-400 text-brand-200 bg-darkbg-card', success: 'border-emerald-500 text-emerald-200 bg-emerald-950/80', error: 'border-rose-500 text-rose-200 bg-rose-950/80' };
+    const el = document.createElement('div');
+    el.className = `fixed top-5 right-5 z-[100] max-w-sm px-4 py-3 rounded-xl border text-sm font-semibold shadow-2xl animate-[slideIn_.3s_ease] ${colors[type] || colors.info}`;
+    el.style.animation = 'slideIn 0.3s ease';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transition = 'opacity .3s';
+        setTimeout(() => el.remove(), 300);
+    }, 4000);
+}
+
+// Mică animație pentru toast
+const toastStyle = document.createElement('style');
+toastStyle.textContent = '@keyframes slideIn{from{transform:translateX(30px);opacity:0}to{transform:translateX(0);opacity:1}}';
+document.head.appendChild(toastStyle);
 
 // ---------------------------------------------------------------------
 // UI helpers

@@ -65,7 +65,7 @@ if (cluster.isMaster) {
     // ✏️ Modifică DOAR aici un preț; UI-ul și Stripe se actualizează singure.
     // -----------------------------------------------------------------
     const CATALOG = {
-        'cheat-fivem-24h':     { id: 'cheat-fivem-24h',     sku: 'FIVEM-24H',  name: 'Cheat FiveM 24H',      priceEUR: 0.001, badge: 'STARTER', features: ['Valabilitate 24 Ore', 'Aimbot & ESP complet', 'HWID Spoofer Inclus', 'Suport Discord 24/7'] },
+        'cheat-fivem-24h':     { id: 'cheat-fivem-24h',     sku: 'FIVEM-24H',  name: 'Cheat FiveM 24H',      priceEUR: 5.00, badge: 'STARTER', features: ['Valabilitate 24 Ore', 'Aimbot & ESP complet', 'HWID Spoofer Inclus', 'Suport Discord 24/7'] },
         'cheat-fivem-7d':      { id: 'cheat-fivem-7d',      sku: 'FIVEM-7D',   name: 'Cheat FiveM 7 Zile',   priceEUR: 12.00, badge: 'POPULAR', features: ['Valabilitate 7 Zile', 'Aimbot & ESP complet', 'HWID Spoofer Inclus', 'Actualizări Automate'] },
         'cheat-fivem-monthly': { id: 'cheat-fivem-monthly', sku: 'FIVEM-30D',  name: 'Cheat FiveM 30 Zile',  priceEUR: 15.00, badge: 'BEST VALUE', features: ['Valabilitate 30 Zile', 'Aimbot & ESP complet', 'HWID Spoofer Inclus', 'Prioritate Ticketing'] },
         'cheat-fivem-lifetime':{ id: 'cheat-fivem-lifetime',sku: 'FIVEM-LIFE', name: 'Cheat FiveM Lifetime', priceEUR: 35.00, badge: 'ULTIMATE', features: ['Acces Nelimitat / Pe viață', 'Toate funcțiile de mai sus', 'HWID Spoofer Inclus', 'VIP Role Discord'] },
@@ -85,6 +85,26 @@ if (cluster.isMaster) {
         checkoutSessionId: { type: String, index: true },
     }, { timestamps: true });
     const License = mongoose.model('License', LicenseSchema);
+
+    // -----------------------------------------------------------------
+    // Model Mongoose — Comenzi Paysafecard (chitanțe)
+    // -----------------------------------------------------------------
+    const PaysafeOrderSchema = new mongoose.Schema({
+        receiptId:       { type: String, unique: true, required: true },  // ID unicat anticontrafacere
+        email:           { type: String, default: '' },
+        items:           [{ id: String, name: String, priceEUR: Number, quantity: Number }],
+        amountEUR:       { type: Number, required: true },
+        paysafePin:      { type: String, default: '' },   // reținut pentru verificare manuală de staff
+        status:          { type: String, enum: ['pending_verification', 'completed', 'expired', 'cancelled'], default: 'pending_verification' },
+        expiresAt:       { type: Date, required: true },  // cronometru
+        verifiedBy:      { type: String, default: '' },
+    }, { timestamps: true });
+    const PaysafeOrder = mongoose.model('PaysafeOrder', PaysafeOrderSchema);
+
+    // Configurare Paysafecard (din variabile de mediu)
+    const PAYSAFE_ORDER_TTL_MS = (parseInt(process.env.PAYSAFE_ORDER_TTL_MINUTES || '10', 10) || 10) * 60 * 1000;
+    const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || '';   // canal secret staff
+    const DISCORD_INVITE_URL  = process.env.DISCORD_INVITE_URL  || 'https://discord.gg/T4Z7bduvWr'; // link permanent
 
     // -----------------------------------------------------------------
     // Body parsing — salvăm și raw body pentru webhook-ul Stripe
@@ -278,6 +298,23 @@ if (cluster.isMaster) {
         res.json({ success: true });
     });
 
+    // Lista comenzilor Paysafe (admin) — pentru verificare manuală
+    app.get('/api/admin/paysafe', requireAdmin, async (req, res) => {
+        const orders = await PaysafeOrder.find().sort({ createdAt: -1 }).limit(200);
+        res.json({ success: true, orders });
+    });
+
+    // Staff-ul verifică fondurile PIN-ului și marchează comanda ca verificată
+    app.post('/api/admin/paysafe/complete', requireAdmin, async (req, res) => {
+        const { receiptId } = req.body || {};
+        const order = await PaysafeOrder.findOne({ receiptId: String(receiptId || '').toUpperCase() });
+        if (!order) return res.status(404).json({ error: 'Chitanță negăsită.' });
+        order.status = 'completed';
+        order.verifiedBy = 'staff';
+        await order.save();
+        res.json({ success: true });
+    });
+
     // -----------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------
@@ -286,6 +323,139 @@ if (cluster.isMaster) {
         const groups = hex.match(/.{4}/g).join('-'); // XXXX-XXXX-XXXX-XXXX
         return `${prefix || 'NOVAX'}-${groups}`;
     }
+
+    function generateReceiptId() {
+        // ID unicat anticontrafacere: PS-XXXXXXXX-XXXXXXXX
+        const hex = crypto.randomBytes(8).toString('hex').toUpperCase();
+        const groups = hex.match(/.{4}/g).join('-');
+        return `PS-${groups}`;
+    }
+
+    // Trimite un mesaj pe canalul secret de staff prin webhook Discord
+    async function sendDiscordStaffNotification(payload) {
+        if (!DISCORD_WEBHOOK_URL) {
+            console.log('[PAYSAFE] Webhook Discord neconfigurat — notificarea nu a fost trimisă.');
+            return;
+        }
+        try {
+            await fetch(DISCORD_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: null,
+                    embeds: [{
+                        title: '🧾 Comandă Paysafecard nouă — în așteptare verificare',
+                        color: 0xff7f50,
+                        fields: [
+                            { name: '📋 Receipt ID', value: payload.receiptId, inline: false },
+                            { name: '💰 Sumă', value: `${payload.amountEUR.toFixed(2)} €`, inline: true },
+                            { name: '📧 Email', value: payload.email || '—', inline: true },
+                            { name: '📦 Produse', value: payload.items.map(i => `${i.name} x${i.quantity}`).join('\n') || '—', inline: false },
+                            { name: '⏰ Expiră la', value: new Date(payload.expiresAt).toLocaleString('ro-RO', { timeZone: 'UTC' }) + ' UTC', inline: true },
+                        ],
+                        timestamp: new Date().toISOString(),
+                    }],
+                }),
+            });
+        } catch (err) {
+            console.error('[PAYSAFE] Eroare la trimiterea notificării Discord:', err.message);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // POST /api/paysafe/create — clientul creează o comandă Paysafe
+    // NOTĂ: fără cont de comerciant Paysafe nu se poate verifica automat
+    // soldul unui PIN. Comanda rămâne "pending_verification" și staff-ul
+    // o verifică manual (sold PIN) înainte de livrare.
+    // -----------------------------------------------------------------
+    app.post('/api/paysafe/create', async (req, res) => {
+        try {
+            const { email, items, pin } = req.body || {};
+
+            if (!Array.isArray(items) || items.length === 0) {
+                return res.status(400).json({ error: 'Coșul este gol.' });
+            }
+
+            // Validare strictă PIN Paysafecard: exact 16 cifre
+            const cleanPin = String(pin || '').replace(/\s+/g, '');
+            if (!/^\d{16}$/.test(cleanPin)) {
+                return res.status(400).json({ error: 'PIN Paysafecard invalid. Trebuie să conțină exact 16 cifre.' });
+            }
+
+            // Construim detaliile comenzii și calculăm suma din CATALOG (niciodată din client)
+            const orderItems = [];
+            let amountEUR = 0;
+            for (const it of items) {
+                const product = CATALOG[it.id];
+                if (!product) return res.status(400).json({ error: 'Produs invalid.' });
+                const qty = Math.max(1, Math.floor(it.quantity || 1));
+                orderItems.push({ id: product.id, name: product.name, priceEUR: product.priceEUR, quantity: qty });
+                amountEUR += product.priceEUR * qty;
+            }
+            amountEUR = Math.round(amountEUR * 100) / 100;
+
+            // Creează comanda cu ID unicat + expirare (cronometru)
+            const order = await PaysafeOrder.create({
+                receiptId: generateReceiptId(),
+                email: (email || '').trim(),
+                items: orderItems,
+                amountEUR,
+                paysafePin: cleanPin,
+                status: 'pending_verification',
+                expiresAt: new Date(Date.now() + PAYSAFE_ORDER_TTL_MS),
+            });
+
+            // Notifică staff-ul pe canalul secret Discord
+            await sendDiscordStaffNotification({
+                receiptId: order.receiptId,
+                amountEUR,
+                email: order.email,
+                items: orderItems,
+                expiresAt: order.expiresAt,
+            });
+
+            res.json({
+                success: true,
+                receiptId: order.receiptId,
+                amountEUR,
+                status: order.status,
+                expiresAt: order.expiresAt,
+                discordInviteUrl: DISCORD_INVITE_URL,
+                receiptUrl: `/receipt.html?id=${order.receiptId}`,
+            });
+        } catch (err) {
+            console.error('[PAYSAFE] Eroare la creare comandă:', err.message);
+            res.status(500).json({ error: 'Nu am putut crea comanda. Încearcă din nou.' });
+        }
+    });
+
+    // -----------------------------------------------------------------
+    // GET /api/paysafe/status/:receiptId — verifică starea unei chitanțe
+    // -----------------------------------------------------------------
+    app.get('/api/paysafe/status/:receiptId', async (req, res) => {
+        const receiptId = String(req.params.receiptId || '').toUpperCase();
+        const order = await PaysafeOrder.findOne({ receiptId });
+        if (!order) return res.status(404).json({ error: 'Chitanță negăsită.' });
+
+        // Expiră automat dacă a trecut timpul
+        if (order.status === 'pending_verification' && order.expiresAt < new Date()) {
+            order.status = 'expired';
+            await order.save();
+        }
+
+        res.json({
+            success: true,
+            receiptId: order.receiptId,
+            amountEUR: order.amountEUR,
+            email: order.email,
+            items: order.items,
+            status: order.status,
+            createdAt: order.createdAt,
+            expiresAt: order.expiresAt,
+            antiFraudCode: order.receiptId, // același ID unicat, verificabil în DB
+            discordInviteUrl: DISCORD_INVITE_URL,
+        });
+    });
 
     // -----------------------------------------------------------------
     // Start

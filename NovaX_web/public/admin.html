@@ -38,6 +38,7 @@
         </div>
 
         <div class="main-card">
+            <h3 style="margin:0 0 8px;">Licențe</h3>
             <table>
                 <thead>
                     <tr>
@@ -54,6 +55,23 @@
                 </tbody>
             </table>
             <div id="msg"></div>
+        </div>
+
+        <!-- Secțiune comenzi Paysafecard -->
+        <div class="main-card" style="margin-top:20px;">
+            <h3 style="margin:0 0 4px;">🧾 Comenzi Paysafecard</h3>
+            <p style="color:var(--text-sub);font-size:0.8rem;margin-bottom:10px;">
+                Verifică soldul PIN-ului manual, apoi marchează comanda ca verificată.
+            </p>
+            <button onclick="loadPaysafe()" class="btn" style="background:#f9a825;color:#111;">💳 Încarcă Comenzi Paysafe</button>
+            <table>
+                <thead>
+                    <tr><th>Receipt ID</th><th>Email</th><th>Sumă</th><th>Produse</th><th>Status</th><th>Acțiune</th></tr>
+                </thead>
+                <tbody id="paysafeTable">
+                    <tr><td colspan="6" style="text-align:center;">—</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 
@@ -126,8 +144,39 @@
         function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
         function escAttr(s) { return String(s).replace(/['"\\`]/g, ''); }
 
+        // ---- Comenzi Paysafecard ----
+        async function loadPaysafe() {
+            const tbody = document.getElementById('paysafeTable');
+            try {
+                const res = await fetch('/api/admin/paysafe', { headers: adminHeaders() });
+                const data = await res.json();
+                if (!res.ok || !data.success) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#f87171;">Eroare sau neautorizat.</td></tr>'; return; }
+                if (data.orders.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Nicio comandă.</td></tr>'; return; }
+                tbody.innerHTML = data.orders.map(o => `
+                    <tr>
+                        <td><code>${esc(o.receiptId)}</code></td>
+                        <td>${esc(o.email||'—')}</td>
+                        <td>${Number(o.amountEUR).toFixed(2)} €</td>
+                        <td style="font-size:0.7rem;">${esc(o.items.map(i=>i.name+' x'+i.quantity).join(', '))}</td>
+                        <td><span class="badge ${o.status==='completed'?'active':(o.status==='expired'?'banned':'')}">${esc(o.status.replace(/_/g,' '))}</span></td>
+                        <td>
+                            ${o.status==='pending_verification' ? `<button class="btn btn-unban" onclick="completePaysafe('${escAttr(o.receiptId)}')">✔ Marchează verificat</button>` : '—'}
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#f87171;">Eroare de conexiune.</td></tr>'; }
+        }
+
+        async function completePaysafe(receiptId) {
+            if (!confirm(`Confirmi că ai verificat plata pentru ${receiptId}?`)) return;
+            const res = await fetch('/api/admin/paysafe/complete', { method:'POST', headers: adminHeaders(), body: JSON.stringify({ receiptId }) });
+            setMsg(res.ok ? 'Comanda marcată ca verificată.' : 'Eroare la actualizare.', res.ok);
+            loadPaysafe();
+        }
+
         // load on start
         loadLicenses();
+        loadPaysafe();
     </script>
 </body>
 </html>
