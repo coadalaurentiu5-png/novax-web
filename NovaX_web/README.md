@@ -1,72 +1,53 @@
-# NOVAX OS — Proiect complet refăcut
+# NOVAX OS — Paye la Paysafecard, livrare prin Discord
 
-Refacere integrală și curată a site-ului Novax Web cu plăți Stripe + livrare
-automată de licențe prin MongoDB (Mongoose).
+Site-ul acceptă **doar Paysafecard** ca metodă de plată. Plata **NU se procesează
+automat** (fără cont de comerciant la Paysafe nu poți verifica automat un PIN) —
+clientul primește o **chitanță cu Receipt ID**, merge pe Discord, deschide un
+tichet, iar **staff-ul verifică PIN-ul manual** și livrează produsul.
 
-## Structură
+## Cum funcționează
 
-```
-novax_rework/
-├── server.js            # backend Express: Stripe, webhook, admin, catalog, MongoDB
-├── package.json         # dependențe curate (fără mysql2)
-├── .env.example         # variabile de mediu de copiat în Render
-└── public/
-    ├── index.html       # storefront (Tailwind) — afișează catalogul din API
-    ├── app.js           # frontend logic: coș + checkout (referit de index.html)
-    ├── admin.html       # dashboard admin licențe/HWID
-    ├── success.html     # după plată — afișează cheia generată
-    ├── cancel.html      # plată anulată
-    └── style.css        # stil admin + pagini checkout
-```
+1. Clientul pune produse în coș, introduce email + **PIN Paysafecard (16 cifre)**.
+2. Sistemul validează PIN-ul (16 cifre), calculează suma din `CATALOG` și creează
+   o comandă cu **Receipt ID unicat** + cronometru de expirare (10 min).
+3. **Staff-ul** primește notificare pe canalul secret de Discord (Receipt ID, sumă,
+   email, produse, PIN).
+4. Clientul e dus pe `receipt.html` → apasă **Discord** → deschide tichet → lipește
+   Receipt ID-ul.
+5. Staff-ul verifică PIN-ul, livrează produsul manual și marchează comanda ca
+   verificată în admin.
 
-## Ce a fost reparat / refăcut
+## Rute backend
 
-| Problemă | Rezolvare |
-|----------|-----------|
-| Checkout dădea „Produs invalid." | Payload-ul trimis de frontend se potrivește acum cu ce așteaptă serverul (`items[]`). |
-| ID-uri nealiniate (`prod_fivem_24h` vs `cheat-fivem-...`) | Un singur `CATALOG` = sursă unică; frontend-ul îl citește din `GET /api/v1/products`. |
-| `/api/v1/products` nu exista | Ruta a fost adăugată. |
-| Admin-ul apela rute inexistente | `GET /api/admin/licenses`, `POST /api/admin/reset-hwid`, `POST /api/admin/toggle-ban` implementate. |
-| Licențe nu se generau | Webhook Stripe `checkout.session.completed` generează și salvează cheia în MongoDB. |
-| MySQL (mysql2) dar mongoose în pachete | Trecut complet pe MongoDB (mongoose). |
-| `app.js` era cod mort, nefolosit | `index.html` îl referă acum (`<script src="app.js">`). |
-| Body-ul webhook-ului ar fi fost consumat | `express.json({ verify })` salvează raw body pentru verificarea semnăturii Stripe. |
+| Ruta | Rol |
+|------|-----|
+| `GET /` | index.html |
+| `GET /api/v1/products` | catalog |
+| `POST /api/paysafe/create` | creează comanda Paysafe |
+| `GET /api/paysafe/status/:receiptId` | starea chitanței |
+| `GET /api/admin/paysafe` | listă comenzi (admin) |
+| `POST /api/admin/paysafe/complete` | marchează verificat (admin) |
+| `GET /health` | health-check |
 
-## Instalare / configurare
+## Variabile de mediu (Render → Environment)
 
-1. **Copiază** conținutul folderului `novax_rework/` peste proiectul tău (înlocuiește
-   `server.js`, `package.json` și adaugă `public/`).
-2. **Instalează** dependențele: `npm install` (înlocuiește `package-lock.json`).
-3. Creează un fișier `.env` (sau setează în Render → Environment) cu valorile din `.env.example`.
+| Variabilă | Ce pui |
+|-----------|--------|
+| `MONGODB_URI` | linia `mongodb+srv://...` de la Atlas |
+| `BASE_URL` | `https://novax-web.onrender.com` |
+| `ADMIN_KEY` | parolă pentru admin |
+| `DISCORD_INVITE_URL` | link-ul permanent al serverului Discord |
+| `DISCORD_WEBHOOK_URL` | webhook pe canalul SECRET de staff |
+| `PAYSAFE_ORDER_TTL_MINUTES` | `10` |
 
-### În Render setează aceste variabile
-```
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-MONGODB_URI=mongodb+srv://...
-BASE_URL=https://novax-web.onrender.com
-ADMIN_KEY=o-parola-secreta-pentru-admin
-```
-> Dacă `STRIPE_WEBHOOK_SECRET` e gol, webhook-ul acceptă evenimente nesemnate — **folosește-l doar în dezvoltare**. În producție pune-l mereu.
+> ⚠️ `DISCORD_WEBHOOK_URL` trebuie să fie pe un canal **privat** (doar staff-ul),
+> pentru că primește emailuri, sume și PIN-uri.
 
-### Webhook în dashboardul Stripe
-Adaugă endpoint-ul webhook și abonează-te la evenimentul **`checkout.session.completed`**:
-```
-https://novax-web.onrender.com/webhook/stripe
-```
+## Cum urci pe GitHub
 
-## Cum schimbi un preț (corect)
-Doar în `server.js` → `CATALOG` → `priceEUR`. Fă push. Gata. Nu mai editezi HTML.
+Fișierele din folderul `NovaX_web/`:
+- `server.js`, `package.json`, `.env.example`
+- `public/index.html`, `public/app.js`, `public/receipt.html`, `public/admin.html`,
+  `public/style.css`, `public/success.html`, `public/cancel.html`
 
-## Testare rapidă
-```bash
-npm install
-node server.js        # după ce ai MongoDB și variabilele setate
-```
-Deschide `http://localhost:3000`, adaugă produse în coș, introdu email, plătește.
-Cu cheile de test Stripe (`4242 4242 4242 4242`) funcționează fără bani reali.
-
-## Note de securitate
-- `admin.html` trimite `x-admin-key` din câmpul de parolă; pe server e comparat cu `ADMIN_KEY`.
-  Dacă `ADMIN_KEY` e gol, admin-ul e deschis (doar pentru dev).
-- Prețurile vin **exclusiv** de pe server; clientul nu poate decide prețul.
+După urcare, Render se redeploy-uieste singur la push.

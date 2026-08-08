@@ -2,14 +2,13 @@
 // NOVAX OS — public/app.js (frontend storefront, refăcut)
 // ---------------------------------------------------------------------
 // Rol: încarcă catalogul din backend, gestionează coșul și trimite
-// cererea de checkout către /create-checkout-session.
+// cererea de checkout către /api/paysafe/create.
 // =====================================================================
 
 const state = {
     cart: [],
     products: [],
     user: null,
-    payMethod: 'card',           // 'card' | 'paysafe'
     paysafeTimer: null,          // setInterval pentru cronometru
     paysafeExpiresAt: null,      // momentul expirării
 };
@@ -130,29 +129,6 @@ function updateCartUI() {
     if (window.lucide) lucide.createIcons();
 }
 
-// ---------------------------------------------------------------------
-// Selector metodă de plată
-// ---------------------------------------------------------------------
-function setPayMethod(method) {
-    state.payMethod = method;
-    const cardBtn = document.getElementById('payMethodCard');
-    const paysafeBtn = document.getElementById('payMethodPaysafe');
-    const paysafeForm = document.getElementById('paysafeForm');
-
-    const activeCls = 'border-brand-400 bg-brand-950/40 text-brand-300 shadow-lg shadow-brand-500/10';
-    const idleCls = 'border-slate-700 text-slate-300';
-
-    if (cardBtn) { cardBtn.className = `pay-method-btn flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${method === 'card' ? activeCls : idleCls}`; }
-    if (paysafeBtn) { paysafeBtn.className = `pay-method-btn flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${method === 'paysafe' ? activeCls : idleCls}`; }
-
-    if (paysafeForm) {
-        paysafeForm.classList.toggle('hidden', method !== 'paysafe');
-        if (method === 'paysafe') startPaysafeCountdown();
-        else stopPaysafeCountdown();
-    }
-    if (window.lucide) lucide.createIcons();
-}
-
 // Cronometru de 10 minute pentru plata Paysafecard
 function startPaysafeCountdown() {
     stopPaysafeCountdown();
@@ -184,12 +160,13 @@ function stopPaysafeCountdown() {
 }
 
 // ---------------------------------------------------------------------
-// Checkout
+// Checkout (Paysafecard)
 // ---------------------------------------------------------------------
 async function processCheckoutExecution() {
     const checkoutBtn = document.getElementById('checkoutBtn');
     const errorBox = document.getElementById('checkoutErrorMessage');
     const emailInput = document.getElementById('checkoutEmail');
+    const pinInput = document.getElementById('paysafePin');
 
     if (state.cart.length === 0) { showCheckoutError('Coșul este gol.'); return; }
 
@@ -199,56 +176,15 @@ async function processCheckoutExecution() {
         return;
     }
 
-    if (errorBox) errorBox.classList.add('hidden');
-
-    // --- Metoda Paysafecard: flux separat ---
-    if (state.payMethod === 'paysafe') {
-        return await processPaysafeCheckout(checkoutBtn, email);
-    }
-
-    // --- Metoda card (Stripe) ---
-    try {
-        checkoutBtn.disabled = true;
-        checkoutBtn.innerHTML = `<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Se procesează...`;
-        if (window.lucide) lucide.createIcons();
-
-        const payload = { items: state.cart.map(item => ({ id: item.id, quantity: item.quantity })) };
-        if (email) payload.email = email;
-
-        const response = await fetch('/create-checkout-session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-
-        const data = await response.json().catch(() => ({}));
-
-        if (response.ok && data.url) {
-            window.location.href = data.url;
-        } else {
-            throw new Error(data.error || 'Eroare la procesarea plății.');
-        }
-    } catch (err) {
-        showCheckoutError(err.message || 'Serverul nu a răspuns.');
-    } finally {
-        if (!document.querySelector('#checkoutBtn')) return;
-        checkoutBtn.disabled = false;
-        checkoutBtn.innerHTML = `<i data-lucide="credit-card" class="w-5 h-5 stroke-[2.5]"></i> Efectuează Plata`;
-        if (window.lucide) lucide.createIcons();
-    }
-}
-
-// Checkout cu Paysafecard — creează comanda cu chitanță + redirecționează
-async function processPaysafeCheckout(checkoutBtn, email) {
-    const pinInput = document.getElementById('paysafePin');
     const pin = (pinInput && pinInput.value) || '';
     const cleanPin = pin.replace(/\s+/g, '');
-
     // Validare strictă a PIN-ului
     if (!/^\d{16}$/.test(cleanPin)) {
         showToast('PIN Paysafecard invalid. Trebuie să conțină exact 16 cifre.', 'error');
         return;
     }
+
+    if (errorBox) errorBox.classList.add('hidden');
 
     try {
         checkoutBtn.disabled = true;
@@ -330,4 +266,6 @@ function scrollToSection(id) { document.getElementById(id)?.scrollIntoView({ beh
 document.addEventListener('DOMContentLoaded', () => {
     fetchProductsFromAPI();
     updateCartUI();
+    // Paysafecard e singura metodă de plată — pornim cronometrul în drawer
+    startPaysafeCountdown();
 });

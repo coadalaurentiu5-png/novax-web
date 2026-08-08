@@ -34,31 +34,10 @@
 
         <div class="admin-key-row">
             <input type="password" id="adminKeyInput" placeholder="Cheie de admin (dacă este setată)">
-            <button onclick="loadLicenses()" class="btn" style="background:#6366f1;color:#fff;">🔄 Încarcă Licențe</button>
-        </div>
-
-        <div class="main-card">
-            <h3 style="margin:0 0 8px;">Licențe</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Email</th>
-                        <th>Cheie Licență</th>
-                        <th>Plan</th>
-                        <th>HWID</th>
-                        <th>Status</th>
-                        <th>Acțiuni</th>
-                    </tr>
-                </thead>
-                <tbody id="licensesTable">
-                    <tr><td colspan="6" style="text-align:center;">Apasă „Încarcă Licențe”.</td></tr>
-                </tbody>
-            </table>
-            <div id="msg"></div>
         </div>
 
         <!-- Secțiune comenzi Paysafecard -->
-        <div class="main-card" style="margin-top:20px;">
+        <div class="main-card">
             <h3 style="margin:0 0 4px;">🧾 Comenzi Paysafecard</h3>
             <p style="color:var(--text-sub);font-size:0.8rem;margin-bottom:10px;">
                 Verifică soldul PIN-ului manual, apoi marchează comanda ca verificată.
@@ -85,60 +64,7 @@
 
         function setMsg(text, ok = true) {
             const msg = document.getElementById('msg');
-            msg.textContent = text;
-            msg.className = ok ? 'ok' : 'err';
-        }
-
-        async function loadLicenses() {
-            const tbody = document.getElementById('licensesTable');
-            try {
-                const res = await fetch('/api/admin/licenses', { headers: adminHeaders() });
-                const data = await res.json();
-                if (!res.ok) { setMsg(data.error || 'Eroare la încărcare.', false); return; }
-                if (!data.success) { setMsg('Răspuns neașteptat.', false); return; }
-
-                tbody.innerHTML = '';
-                if (data.licenses.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Nicio licență găsită.</td></tr>';
-                } else {
-                    data.licenses.forEach(lic => {
-                        const row = document.createElement('tr');
-                        row.innerHTML = `
-                            <td>${esc(lic.email || '—')}</td>
-                            <td><code>${esc(lic.key)}</code></td>
-                            <td>${esc(lic.plan)}</td>
-                            <td>${lic.hwid ? '🔒 Locked' : '🔓 Unlocked'}</td>
-                            <td><span class="badge ${lic.status === 'banned' ? 'banned' : 'active'}">${esc(lic.status.toUpperCase())}</span></td>
-                            <td>
-                                <button class="btn btn-reset" onclick="resetHWID('${escAttr(lic.key)}')">Reset HWID</button>
-                                ${lic.status === 'active'
-                                    ? `<button class="btn btn-ban" onclick="toggleBan('${escAttr(lic.key)}','banned')">Ban</button>`
-                                    : `<button class="btn btn-unban" onclick="toggleBan('${escAttr(lic.key)}','active')">Unban</button>`}
-                            </td>
-                        `;
-                        tbody.appendChild(row);
-                    });
-                }
-                setMsg('');
-            } catch (err) {
-                setMsg('Eroare de conexiune.', false);
-            }
-        }
-
-        async function resetHWID(key) {
-            if (!confirm(`Resetezi HWID pentru ${key}?`)) return;
-            const res = await fetch('/api/admin/reset-hwid', { method: 'POST', headers: adminHeaders(), body: JSON.stringify({ key }) });
-            const data = await res.json();
-            setMsg(res.ok ? 'HWID resetat.' : (data.error || 'Eroare.'), res.ok);
-            loadLicenses();
-        }
-
-        async function toggleBan(key, status) {
-            if (!confirm(`Schimbi statusul pentru ${key} în ${status}?`)) return;
-            const res = await fetch('/api/admin/toggle-ban', { method: 'POST', headers: adminHeaders(), body: JSON.stringify({ key, status }) });
-            const data = await res.json();
-            setMsg(res.ok ? 'Status actualizat.' : (data.error || 'Eroare.'), res.ok);
-            loadLicenses();
+            if (msg) { msg.textContent = text; msg.className = ok ? 'ok' : 'err'; }
         }
 
         function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
@@ -175,7 +101,6 @@
         }
 
         // load on start
-        loadLicenses();
         loadPaysafe();
     </script>
 </body>
