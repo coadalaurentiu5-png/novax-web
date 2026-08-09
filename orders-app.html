@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plată reușită — NovaX</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .card { max-width: 520px; width: 100%; text-align: center; }
+        .check-icon { font-size: 3rem; color: #4ade80; margin-bottom: 12px; }
+        h1 { font-size: 1.6rem; margin-bottom: 8px; }
+        .receipt { text-align:left; background:#080b12; border:1px dashed var(--border-color); border-radius:12px; padding:20px; margin:18px 0; }
+        .receipt .row { display:flex; justify-content:space-between; padding:6px 0; font-size:0.85rem; border-bottom:1px solid rgba(255,255,255,0.05); }
+        .receipt .row span:first-child { color: var(--text-sub); }
+        .receipt .row span:last-child { color:#fff; font-weight:600; }
+        .code { font-family:monospace; color:#4ade80; font-size:1rem; font-weight:700; letter-spacing:1px; }
+        .sub { color: var(--text-sub); font-size:0.85rem; }
+        .steps { text-align:left; background:rgba(88,101,242,0.08); border:1px solid rgba(88,101,242,0.25); border-radius:12px; padding:16px; margin-top:16px; }
+        .steps h4 { color:#fff; margin-bottom:8px; font-size:0.95rem; }
+        .steps ol { margin-left:18px; color:var(--text-sub); font-size:0.85rem; line-height:1.7; }
+        .discord-btn { display:flex; align-items:center; justify-content:center; gap:10px; background:#5865F2; color:#fff; text-decoration:none; padding:14px; border-radius:10px; font-weight:700; margin-top:16px; transition:all .2s ease; }
+        .discord-btn:hover { background:#4752C4; transform:translateY(-2px); box-shadow:0 8px 20px rgba(88,101,242,0.4); }
+        .btn-ghost { background:transparent; color:var(--text-sub); border:1px solid var(--border-color); padding:12px 20px; border-radius:10px; font-weight:700; cursor:pointer; margin-top:10px; text-decoration:none; display:inline-block; }
+    </style>
+</head>
+<body>
+    <div class="main-card card">
+        <div class="check-icon">✅</div>
+        <h1>Plata a fost procesată!</h1>
+        <p class="sub">Comanda ta e înregistrată. Primești produsul prin Discord.</p>
+
+        <div id="loadingBox" class="loading" style="color:var(--text-sub);margin:16px 0;">Se verifică plata...</div>
+
+        <div id="receiptBox" style="display:none;">
+            <div class="receipt">
+                <div class="row"><span>🧾 Receipt ID</span><span class="code" id="rReceiptId">—</span></div>
+                <div class="row"><span>📦 Produse</span><span id="rItems">—</span></div>
+            </div>
+
+            <div class="steps">
+                <h4>🎫 Cum primești produsul (prin Discord)</h4>
+                <ol>
+                    <li>Apasă butonul de mai jos și intră pe serverul nostru de Discord.</li>
+                    <li>Deschide un <b>tichet</b> (canalul #tickets).</li>
+                    <li>Lipește <b>Receipt ID-ul</b> de mai sus în tichet.</li>
+                    <li>Staff-ul îți livrează cheia de licență pe loc.</li>
+                </ol>
+            </div>
+
+            <a id="discordBtn" href="#" target="_blank" rel="noopener noreferrer" class="discord-btn">
+                Deschide un tichet pe Discord folosind acest Receipt
+            </a>
+        </div>
+
+        <a class="btn-ghost" href="/">Înapoi la site</a>
+        <div id="errBox" class="sub" style="margin-top:12px;"></div>
+    </div>
+
+    <script>
+        async function loadReceipt() {
+            const loading = document.getElementById('loadingBox');
+            const receiptBox = document.getElementById('receiptBox');
+            const errBox = document.getElementById('errBox');
+            const params = new URLSearchParams(location.search);
+            const session_id = params.get('session_id');
+            if (!session_id) { errBox.textContent = 'Lipsește referința plății.'; loading.style.display='none'; return; }
+
+            try {
+                const res = await fetch('/api/license/lookup?session_id=' + encodeURIComponent(session_id));
+                const data = await res.json();
+                if (data.success && data.licenses && data.licenses.length) {
+                    const receiptId = data.licenses[0].receiptId;
+                    document.getElementById('rReceiptId').textContent = receiptId || '—';
+                    document.getElementById('rItems').textContent = data.licenses.map(l => l.plan).join(', ');
+                    // link Discord (invite-ul permanent)
+                    if (data.discordInviteUrl) document.getElementById('discordBtn').href = data.discordInviteUrl;
+                    receiptBox.style.display = 'block';
+                    loading.style.display = 'none';
+                } else {
+                    errBox.textContent = 'Comanda se procesează... Te rugăm să aștepți câteva secunde și să reîmprospătezi.';
+                    loading.style.display = 'none';
+                }
+            } catch (e) {
+                errBox.textContent = 'Nu am putut verifica comanda. Încearcă din nou în câteva momente.';
+                loading.style.display = 'none';
+            }
+        }
+        loadReceipt();
+    </script>
+</body>
+</html>
