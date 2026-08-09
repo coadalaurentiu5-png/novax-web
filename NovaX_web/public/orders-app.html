@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0d131f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="NovaX Comenzi">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%2306b6d4'/%3E%3Ctext x='50' y='68' font-size='50' text-anchor='middle' fill='%23000' font-family='Arial' font-weight='bold'%3EN%3C/text%3E%3C/svg%3E">
+    <title>NovaX Comenzi</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #06090e; color: #f1f5f9; min-height: 100vh;
+        }
+        header {
+            position: sticky; top: 0; z-index: 10;
+            background: rgba(13,19,31,0.95); backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            padding: 14px 16px; display: flex; align-items: center; justify-content: space-between;
+        }
+        header h1 { font-size: 17px; font-weight: 800; }
+        header .logo { width: 32px; height: 32px; border-radius: 9px; background: linear-gradient(135deg,#06b6d4,#6366f1); display:flex; align-items:center; justify-content:center; font-weight:900; color:#000; }
+        .header-left { display: flex; align-items: center; gap: 10px; }
+        .refresh-btn { background: #0891b2; border: none; color: #fff; font-weight: 700; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+        .content { padding: 16px; max-width: 700px; margin: 0 auto; }
+        .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 16px; }
+        .stat { background: #0d131f; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px; text-align: center; }
+        .stat .num { font-size: 22px; font-weight: 900; }
+        .stat .lbl { font-size: 11px; color: #94a3b8; }
+        .stat.pending .num { color: #fbbf24; }
+        .stat.completed .num { color: #4ade80; }
+        .stat.total .num { color: #22d3ee; }
+        .order {
+            background: #0d131f; border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 14px; padding: 14px; margin-bottom: 12px;
+        }
+        .order .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .order .receipt { font-family: monospace; font-weight: 800; color: #4ade80; font-size: 14px; }
+        .order .status { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; }
+        .order .status.pending { background: rgba(251,191,36,0.15); color: #fbbf24; }
+        .order .status.completed { background: rgba(74,222,128,0.15); color: #4ade80; }
+        .order .status.expired { background: rgba(248,113,113,0.15); color: #f87171; }
+        .order .row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; color: #cbd5e1; }
+        .order .row span:first-child { color: #94a3b8; }
+        .order .pin { font-family: monospace; color: #fbbf24; font-weight: 700; letter-spacing: 1px; }
+        .order .items { font-size: 12px; color: #94a3b8; margin: 6px 0; }
+        .order .mark-btn { width: 100%; margin-top: 10px; padding: 10px; border: none; border-radius: 9px; background: #22c55e; color: #000; font-weight: 800; cursor: pointer; font-size: 13px; }
+        .login { max-width: 400px; margin: 60px auto; padding: 24px; background: #0d131f; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; text-align: center; }
+        .login h2 { margin-bottom: 16px; font-size: 20px; }
+        .login input { width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.15); background: #06090e; color: #fff; }
+        .login button { width: 100%; padding: 13px; border: none; border-radius: 9px; background: #06b6d4; color: #000; font-weight: 800; cursor: pointer; }
+        .empty { text-align: center; color: #64748b; padding: 40px 0; }
+        #err { color: #f87171; font-size: 13px; margin-top: 10px; }
+        .install-hint { background: rgba(6,182,212,0.1); border: 1px solid rgba(6,182,212,0.3); border-radius: 10px; padding: 10px 14px; font-size: 12px; color: #67e8f9; margin-bottom: 14px; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <div class="logo">N</div>
+            <h1>NovaX Comenzi</h1>
+        </div>
+        <button class="refresh-btn" onclick="loadOrders()">🔄</button>
+    </header>
+
+    <div class="content">
+        <div id="installHint" class="install-hint" style="display:none;">
+            💡 Pe iPhone: apasă butonul Share (⬆) → „Adaugă la ecranul de pornire" pentru a o salva ca aplicație.
+        </div>
+
+        <!-- Login -->
+        <div id="loginScreen" class="login">
+            <h2>🔐 Acces Staff</h2>
+            <input type="password" id="adminKeyInput" placeholder="Cheia de admin">
+            <button onclick="tryLogin()">Autentifică-te</button>
+            <div id="err"></div>
+        </div>
+
+        <!-- Dashboard -->
+        <div id="dashboard" style="display:none;">
+            <div class="stats">
+                <div class="stat total"><div class="num" id="sTotal">0</div><div class="lbl">Total</div></div>
+                <div class="stat pending"><div class="num" id="sPending">0</div><div class="lbl">Verificare</div></div>
+                <div class="stat completed"><div class="num" id="sCompleted">0</div><div class="lbl">Verificate</div></div>
+            </div>
+            <div id="ordersList"></div>
+        </div>
+    </div>
+
+    <script>
+        let ADMIN_KEY = localStorage.getItem('novax_admin_key') || '';
+
+        function show(which) {
+            document.getElementById('loginScreen').style.display = which === 'login' ? 'block' : 'none';
+            document.getElementById('dashboard').style.display = which === 'dash' ? 'block' : 'none';
+        }
+
+        function tryLogin() {
+            ADMIN_KEY = document.getElementById('adminKeyInput').value.trim();
+            localStorage.setItem('novax_admin_key', ADMIN_KEY);
+            loadOrders();
+        }
+
+        async function loadOrders() {
+            const err = document.getElementById('err');
+            err.textContent = '';
+            try {
+                const headers = {};
+                if (ADMIN_KEY) headers['x-admin-key'] = ADMIN_KEY;
+                const res = await fetch('/api/admin/paysafe', { headers });
+                const data = await res.json();
+                if (!res.ok) {
+                    if (res.status === 401) { err.textContent = 'Cheie admin invalidă.'; show('login'); return; }
+                    err.textContent = data.error || 'Eroare.';
+                    return;
+                }
+                if (!data.success || !data.orders) { err.textContent = 'Răspuns neașteptat.'; return; }
+                show('dash');
+                render(data.orders);
+            } catch (e) {
+                err.textContent = 'Eroare de conexiune.';
+            }
+        }
+
+        function render(orders) {
+            const total = orders.length;
+            const pending = orders.filter(o => o.status === 'pending_verification').length;
+            const completed = orders.filter(o => o.status === 'completed').length;
+            document.getElementById('sTotal').textContent = total;
+            document.getElementById('sPending').textContent = pending;
+            document.getElementById('sCompleted').textContent = completed;
+
+            const list = document.getElementById('ordersList');
+            if (!orders.length) { list.innerHTML = '<div class="empty">Nicio comandă încă.</div>'; return; }
+
+            list.innerHTML = orders.map(o => `
+                <div class="order">
+                    <div class="top">
+                        <span class="receipt">${esc(o.receiptId)}</span>
+                        <span class="status ${esc(o.status)}">${esc(o.status.replace(/_/g,' '))}</span>
+                    </div>
+                    <div class="row"><span>📧 Email</span><span>${esc(o.email || '—')}</span></div>
+                    <div class="row"><span>💰 Sumă</span><span>${Number(o.amountEUR).toFixed(2)} €</span></div>
+                    <div class="row"><span>🔑 PIN Paysafe</span><span class="pin">${esc(o.paysafePin || '—')}</span></div>
+                    <div class="row"><span>🕒 Data</span><span>${o.createdAt ? new Date(o.createdAt).toLocaleString('ro-RO') : '—'}</span></div>
+                    <div class="items">📦 ${esc(o.items.map(i=>i.name+' x'+i.quantity).join(', '))}</div>
+                    ${o.status === 'pending_verification' ? `<button class="mark-btn" onclick="markComplete('${escAttr(o.receiptId)}')">✔ Marchează ca verificat</button>` : ''}
+                </div>
+            `).join('');
+        }
+
+        async function markComplete(receiptId) {
+            if (!confirm(`Marchezi ${receiptId} ca verificat?`)) return;
+            const headers = { 'Content-Type': 'application/json' };
+            if (ADMIN_KEY) headers['x-admin-key'] = ADMIN_KEY;
+            await fetch('/api/admin/paysafe/complete', { method: 'POST', headers, body: JSON.stringify({ receiptId }) });
+            loadOrders();
+        }
+
+        function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+        function escAttr(s) { return String(s).replace(/['"\\`]/g, ''); }
+
+        // dacă am deja cheia salvată, încercăm direct
+        if (ADMIN_KEY) { show('dash'); loadOrders(); } else { show('login'); }
+        // indiciu instalare pe iOS
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const isStandalone = window.navigator.standalone === true;
+        if (isIOS && !isStandalone) document.getElementById('installHint').style.display = 'block';
+        // înregistrare service worker pentru PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(() => {});
+        }
+    </script>
+</body>
+</html>
